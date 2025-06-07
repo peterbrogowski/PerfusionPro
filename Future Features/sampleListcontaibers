@@ -1,0 +1,13 @@
+List {
+  Section("Favorite Songs") {
+    Text("Scrolling in the Deep")
+    Text("Born to Build & Run")
+    Text("Some Body Like View")
+  }
+
+  Section("Other Songs") {
+    ForEach(otherSongs) { song in
+      Text(song.title)
+    }
+  }
+}
