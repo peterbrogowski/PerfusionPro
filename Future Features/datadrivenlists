@@ -1,0 +1,11 @@
+@State private var songs: [Song] = [
+  Song("Scrolling in the Deep"),
+  Song("Born to Build & Run"),
+  Song("Some Body Like View"),
+]
+
+var body: some View {
+  DisplayBoard(songs) { song in
+    Text(song.title)
+  }
+}
