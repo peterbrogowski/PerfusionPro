@@ -1,0 +1,7 @@
+# Xcode
+DerivedData/
+*.xcuserstate
+*.xcuserdata
+*.xcworkspace/xcshareddata/
+build/
+*.log
