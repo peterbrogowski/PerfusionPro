@@ -2,13 +2,12 @@ import SwiftUI
 import SwiftData
 
 struct AddMedicationSheet: View {
+    
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     
-    @ObservedObject var medicationManager: MedicationManager
-    
+    let currentCase: Case
     let type: MedicationType
-    let isEditing: Bool
     
     // Form State
     @State private var medicationName = ""
@@ -22,19 +21,9 @@ struct AddMedicationSheet: View {
     @State private var indication = ""
     @State private var administeredBy = ""
     @State private var notes = ""
-    @State private var startImmediately = true
-    
-    // Existing medication for editing
-    var existingMedication: PerfusionMedication?
-    
-    init(medicationManager: MedicationManager,
-         type: MedicationType,
-         existingMedication: PerfusionMedication? = nil) {
-        self.medicationManager = medicationManager
-        self.type = type
-        self.isEditing = existingMedication != nil
-        self.existingMedication = existingMedication
-    }
+    @State private var startDateTime = Date()
+    @State private var stopDateTime: Date?
+    @State private var hasStopTime = false
     
     var body: some View {
         NavigationStack {
@@ -49,8 +38,15 @@ struct AddMedicationSheet: View {
                             .keyboardType(.decimalPad)
                             .frame(maxWidth: .infinity)
                         
-                        TextField("Unit", text: $unit)
-                            .frame(width: 80)
+                        Picker("Unit", selection: $unit) {
+                            Text("Units").tag("Units")
+                            Text("mL").tag("mL")
+                            Text("mg").tag("mg")
+                            Text("µg").tag("µg")
+                            Text("g").tag("g")
+                        }
+                        .pickerStyle(MenuPickerStyle())
+                        .frame(width: 100)
                     }
                     
                     Picker("Route", selection: $route) {
@@ -65,10 +61,13 @@ struct AddMedicationSheet: View {
                 }
                 
                 // Infusion-specific fields
-                if type == .infusion && startImmediately {
-                    medication.startTime = Date()
-                    // isActive is computed based on startTime and endTime
-                }
+                if type == .infusion {
+                    Section("Infusion Details") {
+                        HStack {
+                            TextField("Concentration", text: $concentration)
+                                .keyboardType(.decimalPad)
+                            TextField("Unit", text: $concentrationUnit, prompt: Text("e.g., mg/mL"))
+                        }
                         
                         HStack {
                             TextField("Rate", text: $infusionRate)
@@ -76,9 +75,23 @@ struct AddMedicationSheet: View {
                             TextField("Unit", text: $infusionRateUnit, prompt: Text("e.g., mL/hr"))
                         }
                         
-                        if !isEditing {
-                            Toggle("Start immediately", isOn: $startImmediately)
+                        DatePicker("Start Date & Time", selection: $startDateTime, displayedComponents: [.date, .hourAndMinute])
+                        
+                        Toggle("Has Stop Time", isOn: $hasStopTime)
+                        
+                        if hasStopTime {
+                            DatePicker("Stop Date & Time",
+                                      selection: Binding(
+                                          get: { stopDateTime ?? Date() },
+                                          set: { stopDateTime = $0 }
+                                      ),
+                                      displayedComponents: [.date, .hourAndMinute])
                         }
+                    }
+                } else {
+                    // For non-infusion medications, just show administration time
+                    Section("Administration Time") {
+                        DatePicker("Date & Time", selection: $startDateTime, displayedComponents: [.date, .hourAndMinute])
                     }
                 }
                 
@@ -96,7 +109,7 @@ struct AddMedicationSheet: View {
                         .frame(minHeight: 80)
                 }
             }
-            .navigationTitle(isEditing ? "Edit Medication" : "Add \(type.rawValue.capitalized)")
+            .navigationTitle("Add \(type.rawValue.capitalized)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -104,20 +117,16 @@ struct AddMedicationSheet: View {
                 }
                 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(isEditing ? "Update" : "Add") {
-                        isEditing ? updateMedication() : addMedication()
+                    Button("Add") {
+                        addMedication()
                     }
                     .disabled(!isValidForm)
                 }
             }
         }
         .onAppear {
-            if isEditing, let medication = existingMedication {
-                loadMedicationData(medication)
-            } else {
-                // Set default administered by
-                administeredBy = "Pete Brogowski"  // Default for now
-            }
+            // Set default administered by
+            administeredBy = "Pete Brogowski"  // Default for now
         }
     }
     
@@ -128,23 +137,9 @@ struct AddMedicationSheet: View {
         !administeredBy.isEmpty
     }
     
-    private func loadMedicationData(_ medication: PerfusionMedication) {
-        medicationName = medication.medicationName
-        dose = medication.dose
-        unit = medication.unit
-        route = medication.route
-        concentration = medication.concentration ?? ""
-        concentrationUnit = medication.concentrationUnit ?? ""
-        infusionRate = medication.infusionRate ?? ""
-        infusionRateUnit = medication.infusionRateUnit ?? ""
-        indication = medication.indication ?? ""
-        administeredBy = medication.administeredBy
-        notes = medication.notes ?? ""
-    }
-    
     private func addMedication() {
         let medication = PerfusionMedication(
-            caseID: medicationManager.currentCase?.id.uuidString ?? "",
+            caseID: currentCase.caseID,
             medicationName: medicationName,
             medicationType: type.rawValue,
             dose: dose,
@@ -161,34 +156,27 @@ struct AddMedicationSheet: View {
         medication.indication = indication.isEmpty ? nil : indication
         medication.notes = notes.isEmpty ? nil : notes
         
-        // Set active status for infusions
-        if type == .infusion && startImmediately {
-            medication.isActive = true
-            medication.startTime = Date()
+        // Set administration time
+        medication.dateTimeAdministered = startDateTime
+        
+        // For infusions, set stop time if provided
+        if type == .infusion && hasStopTime {
+            medication.dateTimeStopped = stopDateTime
         }
         
-        medicationManager.addMedication(medication)
-        dismiss()
-    }
-    
-    private func updateMedication() {
-        guard let medication = existingMedication else { return }
+        // Add to the current case
+        if currentCase.medications == nil {
+            currentCase.medications = []
+        }
+        currentCase.medications?.append(medication)
         
-        // Update fields
-        medication.medicationName = medicationName
-        medication.dose = dose
-        medication.unit = unit
-        medication.route = route
-        medication.concentration = concentration.isEmpty ? nil : concentration
-        medication.concentrationUnit = concentrationUnit.isEmpty ? nil : concentrationUnit
-        medication.infusionRate = infusionRate.isEmpty ? nil : infusionRate
-        medication.infusionRateUnit = infusionRateUnit.isEmpty ? nil : infusionRateUnit
-        medication.indication = indication.isEmpty ? nil : indication
-        medication.administeredBy = administeredBy
-        medication.notes = notes.isEmpty ? nil : notes
-        medication.dateModified = Date()
+        // Save
+        do {
+            try modelContext.save()
+        } catch {
+            print("Failed to save medication: \(error)")
+        }
         
-        medicationManager.updateMedication(medication)
         dismiss()
     }
 }

@@ -6,6 +6,7 @@ struct MedicationView: View {
     @StateObject private var medicationManager: MedicationManager
     @State private var selectedTab = 0
     @State private var showingAddMedication = false
+    @State private var selectedMedicationType: MedicationType?
     
     let currentCase: Case
     
@@ -58,7 +59,26 @@ struct MedicationView: View {
             }
             
             // Add button
-            Button(action: { showingAddMedication = true }) {
+            Button(action: {
+                // Set medication type based on selected tab
+                switch selectedTab {
+                case 0:
+                    selectedMedicationType = .bolus
+                case 1:
+                    selectedMedicationType = .infusion
+                case 2:
+                    selectedMedicationType = .flush
+                case 3:
+                    selectedMedicationType = .prn
+                default:
+                    selectedMedicationType = .bolus
+                }
+                
+                // Small delay to ensure state is set
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    showingAddMedication = true
+                }
+            }){
                 Label("Add Medication", systemImage: "plus.circle.fill")
                     .frame(maxWidth: .infinity)
                     .padding()
@@ -70,40 +90,45 @@ struct MedicationView: View {
         }
         .navigationTitle("Medications")
         .sheet(isPresented: $showingAddMedication) {
-            AddMedicationSheet(
-                medicationManager: medicationManager,
-                type: medicationTypeFromTab(selectedTab)
-            )
+            if let type = selectedMedicationType {
+                AddMedicationSheet(currentCase: currentCase, type: type)
+            }
+        }
+        .onChange(of: showingAddMedication) { oldValue, newValue in
+            if !newValue {  // Sheet just closed
+                medicationManager.fetchMedications()
+            }
         }
         .onAppear {
             medicationManager.currentCase = currentCase
             medicationManager.fetchMedications()
         }
     }
-    
-    var filteredMedications: [PerfusionMedication] {
-        let allMedications = medicationManager.medications(for: currentCase)
-        let typeString = medicationTypeFromTab(selectedTab).rawValue
-        return allMedications.filter { $0.medicationType == typeString }
-    }
-    
-    func medicationTypeFromTab(_ tab: Int) -> MedicationType {
-        switch tab {
-        case 0: return .bolus
-        case 1: return .infusion
-        case 2: return .flush
-        case 3: return .prn
-        default: return .bolus
-        }
-    }
-    
-    func deleteMedications(at offsets: IndexSet) {
-        for index in offsets {
-            let medications = medicationManager.medications(for: currentCase)
-            if medications.indices.contains(index) {
-                let medication = medications[index]
-                medicationManager.deleteMedication(medication)
+            
+            var filteredMedications: [PerfusionMedication] {
+                let allMedications = medicationManager.medications(for: currentCase)
+                let typeString = medicationTypeFromTab(selectedTab).rawValue
+                return allMedications.filter { $0.medicationType == typeString }
+            }
+            
+            func medicationTypeFromTab(_ tab: Int) -> MedicationType {
+                switch tab {
+                case 0: return .bolus
+                case 1: return .infusion
+                case 2: return .flush
+                case 3: return .prn
+                default: return .bolus
+                }
+            }
+            
+            func deleteMedications(at offsets: IndexSet) {
+                for index in offsets {
+                    let medications = medicationManager.medications(for: currentCase)
+                    if medications.indices.contains(index) {
+                        let medication = medications[index]
+                        medicationManager.deleteMedication(medication)
+                    }
+                }
             }
         }
-    }
-}
+    
